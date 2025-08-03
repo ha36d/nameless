@@ -1,0 +1,88 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>E2EE Chat - Telegram Mini App</title>
+  <script src="https://unpkg.com/libsodium-wrappers"></script>
+</head>
+<body>
+  <h2>E2EE Chat Prototype (libsodium.js)</h2>
+  <div>
+    <textarea id="log" rows="10" cols="80" readonly></textarea><br>
+    <input type="text" id="input" placeholder="Type a message...">
+    <button onclick="sendMessage()">Send</button>
+  </div>
+
+  <script>
+    let myKeyPair, sharedKey;
+
+    // Simulate recipient public key (in real app, fetch from bot/server)
+    let recipientPublicKeyBase64 = null;
+
+    async function init() {
+      await sodium.ready;
+      const sodiumLib = sodium;
+
+      // Generate my key pair
+      myKeyPair = sodiumLib.crypto_kx_keypair();
+      log("Your public key (send to partner):\n" + sodiumLib.to_base64(myKeyPair.publicKey));
+
+      // Simulate key exchange
+      document.getElementById('input').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') sendMessage();
+      });
+
+      // Temporary for testing: prompt for partner key
+      const partnerKey = prompt("Paste recipient's public key (Base64):");
+      recipientPublicKeyBase64 = partnerKey;
+      const recipientPublicKey = sodiumLib.from_base64(partnerKey);
+
+      // Derive shared key using crypto_kx
+      const sessionKeys = sodiumLib.crypto_kx_client_session_keys(
+        myKeyPair.publicKey,
+        myKeyPair.privateKey,
+        recipientPublicKey
+      );
+      sharedKey = sessionKeys.sharedTx; // Use sharedTx for encryption
+      log("Shared key derived successfully.");
+    }
+
+    function log(msg) {
+      const logBox = document.getElementById('log');
+      logBox.value += msg + "\n";
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    async function sendMessage() {
+      const input = document.getElementById('input');
+      const message = input.value;
+      input.value = "";
+
+      const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
+      const ciphertext = sodium.crypto_secretbox_easy(sodium.from_string(message), nonce, sharedKey);
+
+      const combined = sodium.to_base64(nonce) + ":" + sodium.to_base64(ciphertext);
+      log("Sent (encrypted):\n" + combined);
+
+      // Simulate receiving own message
+      receiveMessage(combined);
+    }
+
+    function receiveMessage(encoded) {
+      const [nonceB64, cipherB64] = encoded.split(":");
+      const nonce = sodium.from_base64(nonceB64);
+      const ciphertext = sodium.from_base64(cipherB64);
+
+      const plaintext = sodium.crypto_secretbox_open_easy(ciphertext, nonce, sharedKey);
+      if (plaintext) {
+        log("Received (decrypted):\n" + sodium.to_string(plaintext));
+      } else {
+        log("Failed to decrypt message.");
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
